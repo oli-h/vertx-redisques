@@ -809,7 +809,7 @@ public class RedisQues extends AbstractVerticle {
 
     private void consume(final String queue) {
         log.debug(" RedisQues Requested to consume queue " + queue);
-        refreshRegistration(queue, event -> {
+//        refreshRegistration(queue, event -> {
             // Make sure that I am still the registered consumer
             String key = getConsumersPrefix() + queue;
             if (log.isTraceEnabled()) {
@@ -851,7 +851,7 @@ public class RedisQues extends AbstractVerticle {
                     notifyConsumer(queue);
                 }
             });
-        });
+//        });
     }
 
     private Future<Boolean> isQueueLocked(final String queue) {
@@ -866,6 +866,10 @@ public class RedisQues extends AbstractVerticle {
         });
         return future;
     }
+
+    private long count = 0L;
+    private long lastNanos = 0L;
+    private long nextDisplayNanos = 0L;
 
     private void readQueue(final String queue) {
         if (log.isTraceEnabled()) {
@@ -884,6 +888,16 @@ public class RedisQues extends AbstractVerticle {
                         log.trace("RedisQues read queue lindex result: " + answer.result());
                     }
                     if (answer.result() != null) {
+                        count++;
+                        long nanos = System.nanoTime();
+                        if (nanos >= nextDisplayNanos) {
+                            nextDisplayNanos = nanos + 2_000_000_000L; // display metric every 2 seconds
+
+                            long deltaNanos = nanos - lastNanos;
+                            lastNanos = nanos;
+                            System.out.println((count * 1_000_000_000L * 10L / deltaNanos) / 10.0 + " dequeuings per second");
+                            count = 0;
+                        }
                         processMessageWithTimeout(queue, answer.result(), sendResult -> {
                             if (sendResult.success) {
                                 // Remove the processed message from the
@@ -892,7 +906,8 @@ public class RedisQues extends AbstractVerticle {
                                 if (log.isTraceEnabled()) {
                                     log.trace("RedisQues read queue lpop: " + key1);
                                 }
-                                redisClient.lpop(key1, jsonAnswer -> {
+                                redisClient.ltrim(key1, 1, -1, ltrimResp -> {
+//                                redisClient.lpop(key1, jsonAnswer -> {
                                     log.debug("RedisQues Message removed, queue " + queue + " is ready again");
                                     myQueues.put(queue, QueueState.READY);
                                     vertx.cancelTimer(sendResult.timeoutId);
@@ -910,11 +925,11 @@ public class RedisQues extends AbstractVerticle {
                                     if (log.isTraceEnabled()) {
                                         log.trace("RedisQues read queue: " + key);
                                     }
-                                    redisClient.llen(key2, answer1 -> {
-                                        if (answer1.succeeded() && answer1.result() != null && answer1.result() > 0) {
+//                                    redisClient.llen(key2, answer1 -> {
+//                                        if (answer1.succeeded() && answer1.result() != null && answer1.result() > 0) {
                                             notifyConsumer(queue);
-                                        }
-                                    });
+//                                        }
+//                                    });
                                 });
                             } else {
                                 // Failed. Message will be kept in queue and retried later
